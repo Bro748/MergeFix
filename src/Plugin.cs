@@ -76,89 +76,48 @@ sealed class Plugin : BaseUnityPlugin
             {
                 switch (pair.Key)
                 {
-                    case "id":
-                        mod.id = pair.Value.ToString();
-                        break;
+                    case "id": mod.id = pair.Value.ToString(); break;
 
-                    case "name":
-                        mod.name = pair.Value.ToString();
-                        break;
+                    case "name": mod.name = pair.Value.ToString(); break;
 
-                    case "version":
-                        mod.version = pair.Value.ToString();
-                        break;
+                    case "version": mod.version = pair.Value.ToString(); break;
 
-                    case "hide_version":
-                        mod.hideVersion = (bool)pair.Value;
-                        break;
+                    case "hide_version": mod.hideVersion = (bool)pair.Value; break;
 
-                    case "target_game_version":
-                        mod.targetGameVersion = pair.Value.ToString();
-                        break;
+                    case "target_game_version": mod.targetGameVersion = pair.Value.ToString(); break;
 
-                    case "authors":
-                        mod.authors = pair.Value.ToString();
-                        break;
+                    case "authors": mod.authors = pair.Value.ToString(); break;
 
-                    case "description":
-                        mod.description = pair.Value.ToString();
-                        break;
+                    case "description": mod.description = pair.Value.ToString(); break;
 
-                    case "youtube_trailer_id":
-                        mod.trailerID = pair.Value.ToString();
-                        break;
+                    case "youtube_trailer_id": mod.trailerID = pair.Value.ToString(); break;
 
-                    case "requirements":
-                        mod.requirements = ((List<object>)pair.Value).ConvertAll<string>((object x) => x.ToString()).ToArray();
-                        break;
+                    case "requirements": mod.requirements = ((List<object>)pair.Value).ConvertAll((object x) => x.ToString()).ToArray(); break;
 
-                    case "requirement_names":
-                        mod.requirementsNames = ((List<object>)pair.Value).ConvertAll<string>((object x) => x.ToString()).ToArray();
-                        break;
+                    case "requirement_names": mod.requirementsNames = ((List<object>)pair.Value).ConvertAll((object x) => x.ToString()).ToArray(); break;
 
-                    case "tags":
-                        mod.tags = ((List<object>)pair.Value).ConvertAll<string>((object x) => x.ToString()).ToArray();
-                        break;
+                    case "tags": mod.tags = ((List<object>)pair.Value).ConvertAll((object x) => x.ToString()).ToArray(); break;
 
-                    case "checksum_override_version":
-                        mod.checksumOverrideVersion = (bool)pair.Value;
-                        break;
-
+                    case "checksum_override_version": mod.checksumOverrideVersion = (bool)pair.Value; break;
                 }
             }
         }
-        if (Directory.Exists((modpath + Path.DirectorySeparatorChar.ToString() + "world").ToLowerInvariant()))
-        {
-            mod.modifiesRegions = true;
-        }
-        if (Directory.Exists(Path.Combine(modpath, "plugins")) || Directory.Exists(Path.Combine(modpath, "patchers")))
-        {
-            mod.hasDLL = true;
-        }
+        mod.modifiesRegions = Directory.Exists((modpath + Path.DirectorySeparatorChar.ToString() + "world").ToLowerInvariant());
+
+        mod.hasDLL = Directory.Exists(Path.Combine(modpath, "plugins")) || Directory.Exists(Path.Combine(modpath, "patchers"));
+
         string text;
         if (mod.checksumOverrideVersion || !rainWorld.options.enabledMods.Contains(mod.id)) //<<<<<new condition
-        {
-            text = mod.version;
-        }
+        { text = mod.version; }
+
         else
-        {
-            text = ModManager.ComputeModChecksum(mod.path);
-        }
+        { text = ModManager.ComputeModChecksum(mod.path); }
+
         if (rainWorld.options.modChecksums.ContainsKey(mod.id))
         {
             mod.checksumChanged = (text != rainWorld.options.modChecksums[mod.id]);
             if (mod.checksumChanged)
-            {
-                UnityEngine.Debug.Log(string.Concat(new string[]
-                {
-                "MOD CHECKSUM CHANGED FOR ",
-                mod.name,
-                ": Was ",
-                rainWorld.options.modChecksums[mod.id],
-                ", is now ",
-                text
-                }));
-            }
+            { UnityEngine.Debug.Log($"MOD CHECKSUM CHANGED FOR {mod.name}: WAS {rainWorld.options.modChecksums[mod.id]}, is now {text}"); }
         }
         else
         {
@@ -174,9 +133,8 @@ sealed class Plugin : BaseUnityPlugin
     /// </summary>
     private string AssetManager_CreateDirectoryMd5(On.AssetManager.orig_CreateDirectoryMd5 orig, string srcPath, string relativeRoot, List<string> skipFilenames)
     {
-        string[] array = (from p in Directory.GetFiles(srcPath, "*", SearchOption.AllDirectories)
-                          orderby p
-                          select p).ToArray<string>();
+        string[] array = Directory.GetFiles(srcPath, "*", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+
         string result;
         using (MD5 md = MD5.Create())
         {
@@ -192,7 +150,8 @@ sealed class Plugin : BaseUnityPlugin
                     byte[] bytes = Encoding.UTF8.GetBytes(s);
                     md.TransformBlock(bytes, 0, bytes.Length, bytes, 0);
                     //byte[] array3 = File.ReadAllBytes(text); //<<<<<REMOVED
-                    byte[] bytes2 = Encoding.UTF8.GetBytes(new FileInfo(text).Length.ToString()); //<<<<<ADDED (exponentially faster)
+                    FileInfo pho = new(text);
+                    byte[] bytes2 = Encoding.UTF8.GetBytes(pho.Length.ToString() + pho.LastWriteTime.ToString()); //<<<<<ADDED (exponentially faster)
                     md.TransformBlock(bytes2, 0, bytes2.Length, bytes2, 0);
                 }
             }
@@ -257,7 +216,7 @@ sealed class Plugin : BaseUnityPlugin
             {
                 Directory.CreateDirectory(path);
             }
-            ModManager.ModMerger modMerger = new ModManager.ModMerger();
+            ModManager.ModMerger modMerger = new();
             List<ModManager.Mod> mods = ModManager.InstalledMods.OrderBy(o => o.loadOrder).ToList();
 
             foreach (ModManager.Mod mod in mods)
@@ -320,7 +279,7 @@ sealed class Plugin : BaseUnityPlugin
                 //find original file
                 string originPath = AssetManager.ResolveFilePath(fileName.Substring(1));
                 if (!File.Exists(originPath))
-                { Log($"File does not exist {originPath}"); originPath = ""; }
+                { continue; Log($"File does not exist {originPath}"); originPath = ""; } //either skip or make a blank
 
                 //create base merge file
                 string mergedPath = (Custom.RootFolderDirectory() + Path.DirectorySeparatorChar.ToString() + "mergedmods" + fileName).ToLowerInvariant();
