@@ -4,12 +4,14 @@ using System.IO;
 using System.Security.Permissions;
 using System.Text.RegularExpressions;
 using RWCustom;
-using static System.Net.Mime.MediaTypeNames;
 using System.Linq;
 using System;
 using BepInEx.Logging;
 using System.Security.Cryptography;
 using System.Text;
+using MonoMod.Cil;
+using Mono.Cecil.Cil;
+using UnityEngine;
 
 // Allows access to private members
 #pragma warning disable CS0618
@@ -18,7 +20,7 @@ using System.Text;
 
 namespace FixedMerging;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "0.1.0")]
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.2.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     public void OnEnable()
@@ -28,105 +30,89 @@ sealed class Plugin : BaseUnityPlugin
         {
             On.ModManager.ModMerger.ExecutePendingMerge += ModMerger_ExecutePendingMerge;
             On.ModManager.GenerateMergedMods += ModManager_GenerateMergedMods;
-            On.ModManager.ModApplyer.ctor += ModApplyer_ctor;
             On.AssetManager.CreateDirectoryMd5 += AssetManager_CreateDirectoryMd5;
-            On.ModManager.LoadModFromJson += ModManager_LoadModFromJson;
+            On.ModManager.ModMerger.DeterminePaletteConflicts += ModMerger_DeterminePaletteConflicts;
+            On.ModManager.ModMerger.UpdatePaletteLineWithConflict += ModMerger_UpdatePaletteLineWithConflict;
+            IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
+            //IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
+            IL.Menu.ModdingMenu.Singal += ModdingMenu_Singal;
         }
         catch (Exception e) { Logger.LogError(e); }
     }
 
+    private string ModMerger_UpdatePaletteLineWithConflict(On.ModManager.ModMerger.orig_UpdatePaletteLineWithConflict orig, ModManager.ModMerger self, string lineKey, string lineValue)
+    {
+        return lineKey + ": " + lineValue;
+    }
+
+    private void ModMerger_DeterminePaletteConflicts(On.ModManager.ModMerger.orig_DeterminePaletteConflicts orig, ModManager.ModMerger self, string modPath)
+    {
+        return; //no
+    }
+
+    /// <summary>
+    /// FIX LOAD ORDER SCRAMBLE
+    /// </summary>
+    private void ModdingMenu_Singal(ILContext il)
+    {
+        var c = new ILCursor(il);
+        if (c.TryGotoNext(MoveType.After,
+            x => x.MatchLdloc(3),
+            x => x.MatchCall(typeof(Enumerable), nameof(Enumerable.Reverse)),
+            x => x.MatchCall(typeof(Enumerable), nameof(Enumerable.ToList))
+            ))
+        {
+            c.EmitDelegate((List<int> list) => {
+                list.Reverse(); //flip it back so that the values line up with the mods
+                int highest = list.Max((int t) => t); //find the highest mod
+                list = list.Select(t => highest - t).ToList(); //invert the real load order
+                return list;
+            });
+        }
+
+        else { Logger.LogError("failed to hook ALoadModFromJson!"); }
+    }
+
     /// <summary>
     /// DON'T GENERATE CHECKSUMS FOR DISABLED MODS (that's silly)
+    /// BUT ENABLEDMODS ISN'T ALWAYS UP TO DATE!!! so we can't do this now
     /// </summary>
-    private ModManager.Mod ModManager_LoadModFromJson(On.ModManager.orig_LoadModFromJson orig, RainWorld rainWorld, string modpath, string consolepath)
+    private void ModManager_LoadModFromJson1(ILContext il)
     {
-        ModManager.Mod mod = new ModManager.Mod
+        var c = new ILCursor(il);
+        if (c.TryGotoNext(MoveType.After,
+            x => x.MatchLdloc(0),
+            x => x.MatchLdfld<ModManager.Mod>("checksumOverrideVersion")
+            ))
         {
-            id = Path.GetFileName(modpath),
-            name = Path.GetFileName(modpath),
-            version = "",
-            hideVersion = false,
-            targetGameVersion = "v1.9.07b",
-            authors = "Unknown",
-            description = "No Description.",
-            path = modpath,
-            consolePath = consolepath,
-            checksum = "",
-            checksumChanged = false,
-            checksumOverrideVersion = false,
-            requirements = new string[0],
-            requirementsNames = new string[0],
-            tags = new string[0],
-            modifiesRegions = false,
-            workshopId = 0UL,
-            workshopMod = false,
-            hasDLL = false,
-            loadOrder = 0,
-            enabled = false
-        };
-        if (File.Exists(modpath + Path.DirectorySeparatorChar.ToString() + "modinfo.json"))
-        {
-            Dictionary<string, object> dictionary = File.ReadAllText(modpath + Path.DirectorySeparatorChar.ToString() + "modinfo.json").dictionaryFromJson();
-            if (dictionary == null)
-            {
-                UnityEngine.Debug.Log("FAILED TO DESERIALIZE MOD FROM JSON! " + modpath);
-                return null;
-            }
-            foreach (KeyValuePair<string, object> pair in dictionary)
-            {
-                switch (pair.Key)
-                {
-                    case "id": mod.id = pair.Value.ToString(); break;
-
-                    case "name": mod.name = pair.Value.ToString(); break;
-
-                    case "version": mod.version = pair.Value.ToString(); break;
-
-                    case "hide_version": mod.hideVersion = (bool)pair.Value; break;
-
-                    case "target_game_version": mod.targetGameVersion = pair.Value.ToString(); break;
-
-                    case "authors": mod.authors = pair.Value.ToString(); break;
-
-                    case "description": mod.description = pair.Value.ToString(); break;
-
-                    case "youtube_trailer_id": mod.trailerID = pair.Value.ToString(); break;
-
-                    case "requirements": mod.requirements = ((List<object>)pair.Value).ConvertAll((object x) => x.ToString()).ToArray(); break;
-
-                    case "requirement_names": mod.requirementsNames = ((List<object>)pair.Value).ConvertAll((object x) => x.ToString()).ToArray(); break;
-
-                    case "tags": mod.tags = ((List<object>)pair.Value).ConvertAll((object x) => x.ToString()).ToArray(); break;
-
-                    case "checksum_override_version": mod.checksumOverrideVersion = (bool)pair.Value; break;
-                }
-            }
+            c.Emit(OpCodes.Ldarg_0);
+            c.Emit(OpCodes.Ldloc_0);
+            c.EmitDelegate((bool flag, RainWorld rainWorld, ModManager.Mod mod) => flag || !rainWorld.options.enabledMods.Contains(mod.id));
         }
-        mod.modifiesRegions = Directory.Exists((modpath + Path.DirectorySeparatorChar.ToString() + "world").ToLowerInvariant());
 
-        mod.hasDLL = Directory.Exists(Path.Combine(modpath, "plugins")) || Directory.Exists(Path.Combine(modpath, "patchers"));
-
-        string text;
-        if (mod.checksumOverrideVersion || !rainWorld.options.enabledMods.Contains(mod.id)) //<<<<<new condition
-        { text = mod.version; }
-
-        else
-        { text = ModManager.ComputeModChecksum(mod.path); }
-
-        if (rainWorld.options.modChecksums.ContainsKey(mod.id))
-        {
-            mod.checksumChanged = (text != rainWorld.options.modChecksums[mod.id]);
-            if (mod.checksumChanged)
-            { UnityEngine.Debug.Log($"MOD CHECKSUM CHANGED FOR {mod.name}: WAS {rainWorld.options.modChecksums[mod.id]}, is now {text}"); }
-        }
-        else
-        {
-            UnityEngine.Debug.Log("MOD CHECKSUM DID NOT EXIST FOR " + mod.name + ", NEWLY INSTALLED?");
-            mod.checksumChanged = true;
-        }
-        mod.checksum = text;
-        return mod;
+        else { Logger.LogError("failed to hook ALoadModFromJson!"); }
     }
+
+    private void PendingApply_ApplyMerges(MonoMod.Cil.ILContext il)
+    {
+        var c = new ILCursor(il);
+        if (c.TryGotoNext(MoveType.After,
+            x => x.MatchLdloc(0),
+            x => x.MatchLdstr("_settings.txt"),
+            x => x.MatchCallvirt<string>("EndsWith"),
+            x => x.MatchBrtrue(out _),
+            x => x.MatchLdloc(0),
+            x => x.MatchLdstr("_settingstemplate_"),
+            x => x.MatchCallvirt<string>("Contains")
+            ))
+        {
+            c.Emit(OpCodes.Ldloc_0);
+            c.EmitDelegate((bool flag, string fileName) => flag || fileName.Contains("settings-"));
+        }
+
+        else { Logger.LogError("failed to hook ApplyMerges!"); }
+    }
+
 
     /// <summary>
     /// MASSIVE SPEEDBOOST
@@ -151,7 +137,7 @@ sealed class Plugin : BaseUnityPlugin
                     md.TransformBlock(bytes, 0, bytes.Length, bytes, 0);
                     //byte[] array3 = File.ReadAllBytes(text); //<<<<<REMOVED
                     FileInfo pho = new(text);
-                    byte[] bytes2 = Encoding.UTF8.GetBytes(pho.Length.ToString() + pho.LastWriteTime.ToString()); //<<<<<ADDED (exponentially faster)
+                    byte[] bytes2 = Encoding.UTF8.GetBytes(pho.Length.ToString()); //<<<<<ADDED (exponentially faster)
                     md.TransformBlock(bytes2, 0, bytes2.Length, bytes2, 0);
                 }
             }
@@ -159,17 +145,6 @@ sealed class Plugin : BaseUnityPlugin
             result = BitConverter.ToString(md.Hash).Replace("-", "").ToLower();
         }
         return result;
-    }
-
-    /// <summary>
-    /// FIX LOAD ORDER SCRAMBLE
-    /// </summary>
-    private void ModApplyer_ctor(On.ModManager.ModApplyer.orig_ctor orig, ModManager.ModApplyer self, ProcessManager manager, List<bool> pendingEnabled, List<int> pendingLoadOrder)
-    {
-        orig(self, manager, pendingEnabled, pendingLoadOrder);
-        self.pendingLoadOrder.Reverse(); //flip it back so that the values line up with the mods
-        int highest = self.pendingLoadOrder.Max((int t) => t); //find the highest mod
-        self.pendingLoadOrder = self.pendingLoadOrder.Select(t => highest - t).ToList(); //invert the real load order
     }
 
     /// <summary>
@@ -230,7 +205,7 @@ sealed class Plugin : BaseUnityPlugin
                         break;
                     }
                 }
-                if (pendingEnabled[id])
+                if (id != -1 && pendingEnabled[id])
                 {
                     applyer.activeMergingMod = id;
                     modMerger.DeterminePaletteConflicts(mod.path);
