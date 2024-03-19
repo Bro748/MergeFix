@@ -31,7 +31,7 @@ sealed class Plugin : BaseUnityPlugin
         {
             On.ModManager.ModMerger.ExecutePendingMerge += ModMerger_ExecutePendingMerge;
             On.ModManager.GenerateMergedMods += ModManager_GenerateMergedMods;
-            //On.AssetManager.CreateDirectoryMd5 += AssetManager_CreateDirectoryMd5;
+            On.AssetManager.CreateDirectoryMd5_string_string += AssetManager_CreateDirectoryMd5;
             On.ModManager.ModMerger.DeterminePaletteConflicts += ModMerger_DeterminePaletteConflicts;
             On.ModManager.ModMerger.UpdatePaletteLineWithConflict += ModMerger_UpdatePaletteLineWithConflict;
             On.ModManager.ModApplyer.ApplyModsThread += ModApplyer_ApplyModsThread;
@@ -223,7 +223,7 @@ sealed class Plugin : BaseUnityPlugin
     /// <summary>
     /// MASSIVE SPEEDBOOST
     /// </summary>
-    /*private string AssetManager_CreateDirectoryMd5(On.AssetManager.orig_CreateDirectoryMd5 orig, string srcPath, string relativeRoot, List<string> skipFilenames)
+    private string AssetManager_CreateDirectoryMd5(On.AssetManager.orig_CreateDirectoryMd5_string_string orig, string srcPath, string relativeRoot)
     {
         string[] array = (from p in Directory.GetFiles(srcPath, "*.txt", SearchOption.AllDirectories)
                           orderby p
@@ -249,7 +249,7 @@ sealed class Plugin : BaseUnityPlugin
             result = BitConverter.ToString(md.Hash).Replace("-", "").ToLower();
         }
         return result;
-    }*/
+    }
 
     /// <summary>
     /// PT 1 OF "DON'T MERGE MORE THAN YOU NEED"
