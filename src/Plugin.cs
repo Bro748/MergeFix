@@ -12,6 +12,7 @@ using System.Text;
 using MonoMod.Cil;
 using Mono.Cecil.Cil;
 using UnityEngine;
+using IL.MoreSlugcats;
 
 // Allows access to private members
 #pragma warning disable CS0618
@@ -30,28 +31,115 @@ sealed class Plugin : BaseUnityPlugin
         {
             On.ModManager.ModMerger.ExecutePendingMerge += ModMerger_ExecutePendingMerge;
             On.ModManager.GenerateMergedMods += ModManager_GenerateMergedMods;
-            On.AssetManager.CreateDirectoryMd5 += AssetManager_CreateDirectoryMd5;
+            //On.AssetManager.CreateDirectoryMd5 += AssetManager_CreateDirectoryMd5;
             On.ModManager.ModMerger.DeterminePaletteConflicts += ModMerger_DeterminePaletteConflicts;
             On.ModManager.ModMerger.UpdatePaletteLineWithConflict += ModMerger_UpdatePaletteLineWithConflict;
-            IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
+            On.ModManager.ModApplyer.ApplyModsThread += ModApplyer_ApplyModsThread;
+            //IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
             //IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
-            IL.Menu.ModdingMenu.Singal += ModdingMenu_Singal;
+            //IL.Menu.ModdingMenu.Singal += ModdingMenu_Singal;
+            IL.PNGSaver.SaveTextureToFile += PNGSaver_SaveTextureToFile;
+            IL.AssetManager.ResolveFilePath_string_bool += AssetManager_ResolveFilePath;
+            IL.AssetManager.ResolveDirectory += AssetManager_ResolveDirectory;
         }
         catch (Exception e) { Logger.LogError(e); }
+    }
+
+    private void AssetManager_ResolveDirectory(ILContext il)
+    {
+        ReverseForLoop(il, 3);
+    }
+
+    private void AssetManager_ResolveFilePath(ILContext il)
+    {
+        ReverseForLoop(il, 1);
+    }
+
+    private void ReverseForLoop(ILContext il, int loc)
+    {
+        var c = new ILCursor(il);
+        if (c.TryGotoNext(MoveType.Before,
+            x => x.MatchLdcI4(0),
+            x => x.MatchStloc(loc),
+            x => x.MatchBr(out _),
+            x => x.MatchLdsfld<ModManager>(nameof(ModManager.ActiveMods))
+            ))
+        {
+            c.Index++;
+            c.Emit(OpCodes.Pop);
+            c.EmitDelegate(() => ModManager.ActiveMods.Count - 1);
+        }
+        else { Logger.LogError("flip AssetManager pt 1 failed"); return; }
+
+        if (c.TryGotoNext(MoveType.After,
+            x => x.MatchLdloc(loc),
+            x => x.MatchLdcI4(1),
+            x => x.MatchAdd()
+            ))
+        {
+            c.EmitDelegate((int i) => i - 2);
+        }
+        else { Logger.LogError("flip AssetManager pt 2 failed"); return; }
+
+        ILLabel label = null!;
+        if (c.TryGotoNext(MoveType.After,
+            x => x.MatchLdloc(loc),
+            x => x.MatchLdsfld<ModManager>(nameof(ModManager.ActiveMods)),
+            x => x.MatchCallvirt(out _),
+            x => x.MatchBlt(out label)
+            ))
+        {
+            c.Index -= 3;
+            c.RemoveRange(3);
+            c.Emit(OpCodes.Ldc_I4_0);
+            c.Emit(OpCodes.Bge, label);
+        }
+        else { Logger.LogError("flip AssetManager pt 3 failed"); return; }
+    }
+
+    /// <summary>
+    /// I told vigaro to do this for map merger code, as otherwise it eats up a ton of memory
+    /// </summary>
+    private void PNGSaver_SaveTextureToFile(ILContext il)
+    {
+        var c = new ILCursor(il);
+        if (c.TryGotoNext(MoveType.After, x => x.MatchCall(typeof(File), nameof(File.WriteAllBytes))))
+        {
+            c.Emit(OpCodes.Ldloc_0);
+            c.Emit(OpCodes.Call, typeof(UnityEngine.Object).GetMethod(nameof(Destroy), new Type[] {typeof(UnityEngine.Object)}));
+        }
+        else
+        {
+            Logger.LogError("failed to il hook PNGSaver!");
+        }
+    }
+
+    /// <summary>
+    /// fix checksums not updating on applying causing double-applying
+    /// </summary>
+    private void ModApplyer_ApplyModsThread(On.ModManager.ModApplyer.orig_ApplyModsThread orig, ModManager.ModApplyer self)
+    {
+        orig(self);
+        for (int i = 0; i < ModManager.InstalledMods.Count; i++)
+        { self.manager.rainWorld.options.modChecksums[ModManager.InstalledMods[i].id] = ModManager.InstalledMods[i].checksum; }
     }
 
     private string ModMerger_UpdatePaletteLineWithConflict(On.ModManager.ModMerger.orig_UpdatePaletteLineWithConflict orig, ModManager.ModMerger self, string lineKey, string lineValue)
     {
         return lineKey + ": " + lineValue;
     }
-
+    /// <summary>
+    /// if you think hard enough, this doesn't actually do anything.
+    /// finding two palette60, rename one to palette160, and then update all room settings to use palette160;
+    /// that's exactly the same as just using the highest palette60 in the load order
+    /// </summary>
     private void ModMerger_DeterminePaletteConflicts(On.ModManager.ModMerger.orig_DeterminePaletteConflicts orig, ModManager.ModMerger self, string modPath)
     {
         return; //no
     }
 
     /// <summary>
-    /// FIX LOAD ORDER SCRAMBLE
+    /// FIX LOAD ORDER SCRAMBLE (this is in base game now, not applied)
     /// </summary>
     private void ModdingMenu_Singal(ILContext il)
     {
@@ -76,6 +164,7 @@ sealed class Plugin : BaseUnityPlugin
     /// <summary>
     /// DON'T GENERATE CHECKSUMS FOR DISABLED MODS (that's silly)
     /// BUT ENABLEDMODS ISN'T ALWAYS UP TO DATE!!! so we can't do this now
+    /// base game does this
     /// </summary>
     private void ModManager_LoadModFromJson1(ILContext il)
     {
@@ -117,35 +206,33 @@ sealed class Plugin : BaseUnityPlugin
     /// <summary>
     /// MASSIVE SPEEDBOOST
     /// </summary>
-    private string AssetManager_CreateDirectoryMd5(On.AssetManager.orig_CreateDirectoryMd5 orig, string srcPath, string relativeRoot, List<string> skipFilenames)
+    /*private string AssetManager_CreateDirectoryMd5(On.AssetManager.orig_CreateDirectoryMd5 orig, string srcPath, string relativeRoot, List<string> skipFilenames)
     {
-        string[] array = Directory.GetFiles(srcPath, "*", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
-
+        string[] array = (from p in Directory.GetFiles(srcPath, "*.txt", SearchOption.AllDirectories)
+                          orderby p
+                          select p).ToArray<string>();
         string result;
         using (MD5 md = MD5.Create())
         {
             foreach (string text in array)
             {
-                if ((skipFilenames == null || !skipFilenames.Contains(Path.GetFileName(text))) && !text.EndsWith(".meta") && !text.EndsWith(".png") && !text.ToLowerInvariant().EndsWith(".dll"))
+                string s = text;
+                if (relativeRoot != "" && text.Contains(relativeRoot))
                 {
-                    string s = text;
-                    if (relativeRoot != "" && text.Contains(relativeRoot))
-                    {
-                        s = text.Substring(text.IndexOf(relativeRoot) + relativeRoot.Length);
-                    }
-                    byte[] bytes = Encoding.UTF8.GetBytes(s);
-                    md.TransformBlock(bytes, 0, bytes.Length, bytes, 0);
-                    //byte[] array3 = File.ReadAllBytes(text); //<<<<<REMOVED
-                    FileInfo pho = new(text);
-                    byte[] bytes2 = Encoding.UTF8.GetBytes(pho.Length.ToString()); //<<<<<ADDED (exponentially faster)
-                    md.TransformBlock(bytes2, 0, bytes2.Length, bytes2, 0);
+                    s = text.Substring(text.IndexOf(relativeRoot) + relativeRoot.Length);
                 }
+                byte[] bytes = Encoding.UTF8.GetBytes(s);
+                md.TransformBlock(bytes, 0, bytes.Length, bytes, 0);
+                //byte[] array3 = File.ReadAllBytes(text); //<<<<<REMOVED
+                FileInfo pho = new(text);
+                byte[] bytes2 = Encoding.UTF8.GetBytes(pho.Length.ToString()); //<<<<<ADDED (exponentially faster)
+                md.TransformBlock(bytes2, 0, bytes2.Length, bytes2, 0);
             }
             md.TransformFinalBlock(new byte[0], 0, 0);
             result = BitConverter.ToString(md.Hash).Replace("-", "").ToLower();
         }
         return result;
-    }
+    }*/
 
     /// <summary>
     /// PT 1 OF "DON'T MERGE MORE THAN YOU NEED"
@@ -248,13 +335,13 @@ sealed class Plugin : BaseUnityPlugin
                 string fileName = kvp.Key;
                 List<ModManager.ModMerger.PendingApply> pendingApplies = kvp.Value;
 
-                //don't merge if is strings.txt
+                //don't merge if is strings.txt (this is excluded in ModMerger.WriteMergedFile so there's no point in bothering)
                 if (pendingApplies.Where(x => x.filePath.Contains("strings.txt")).Count() > 0) continue;
 
                 //find original file
                 string originPath = AssetManager.ResolveFilePath(fileName.Substring(1));
                 if (!File.Exists(originPath))
-                { continue; Log($"File does not exist {originPath}"); originPath = ""; } //either skip or make a blank
+                { continue; Logger.LogInfo($"File does not exist {originPath}"); originPath = ""; } //either skip or make a blank
 
                 //create base merge file
                 string mergedPath = (Custom.RootFolderDirectory() + Path.DirectorySeparatorChar.ToString() + "mergedmods" + fileName).ToLowerInvariant();
@@ -292,10 +379,5 @@ sealed class Plugin : BaseUnityPlugin
             applyer.applyFileInd = 0;
         }
         catch (Exception e) { Logger.LogError(e); throw; }
-    }
-
-    void Log(string str)
-    {
-        Logger.LogInfo(str);
     }
 }
