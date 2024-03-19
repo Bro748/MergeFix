@@ -41,8 +41,21 @@ sealed class Plugin : BaseUnityPlugin
             IL.PNGSaver.SaveTextureToFile += PNGSaver_SaveTextureToFile;
             IL.AssetManager.ResolveFilePath_string_bool += AssetManager_ResolveFilePath;
             IL.AssetManager.ResolveDirectory += AssetManager_ResolveDirectory;
+            IL.AssetManager.ListDirectory_string_bool_bool_bool += AssetManager_ListDirectory_string_bool_bool_bool;
         }
         catch (Exception e) { Logger.LogError(e); }
+    }
+
+    /// <summary>
+    /// don't forget ToLowerInvariant() your filepaths! lots of things break otherwise
+    /// not in base game since those are all lower anyways, but mods use inconsistent case all the time
+    /// and also... we obviously don't want to have case sensitive file code because it causes goofy inconsistencies
+    /// </summary>
+    private void AssetManager_ListDirectory_string_bool_bool_bool(ILContext il)
+    {
+        var c = new ILCursor(il);
+        while (c.TryGotoNext(MoveType.After, x => x.MatchLdloc(8)))
+        { c.Emit(OpCodes.Callvirt, typeof(string).GetMethod(nameof(string.ToLowerInvariant))); }
     }
 
     private void AssetManager_ResolveDirectory(ILContext il)
@@ -55,6 +68,10 @@ sealed class Plugin : BaseUnityPlugin
         ReverseForLoop(il, 1);
     }
 
+    /// <summary>
+    /// load order goes from highest to lowest when stopping at the first item found
+    /// you only go from lowest to highest when the affects stack
+    /// </summary>
     private void ReverseForLoop(ILContext il, int loc)
     {
         var c = new ILCursor(il);
