@@ -2,30 +2,29 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Permissions;
-using System.Text.RegularExpressions;
 using RWCustom;
 using System.Linq;
 using System;
-using BepInEx.Logging;
 using System.Security.Cryptography;
 using System.Text;
 using MonoMod.Cil;
 using Mono.Cecil.Cil;
-using UnityEngine;
-using IL.MoreSlugcats;
 
 // Allows access to private members
 #pragma warning disable CS0618
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
 #pragma warning restore CS0618
 
-namespace FixedMerging;
+namespace MergeFix;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.2.0")]
-sealed class Plugin : BaseUnityPlugin
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.3.0")]
+sealed class MergeFixPlugin : BaseUnityPlugin
 {
+    public static MergeFixPlugin instance;
+    internal static void BepLog(string message) => instance.Logger.LogMessage(message);
     public void OnEnable()
     {
+        instance = this;
         // Add hooks here
         try
         {
@@ -36,12 +35,11 @@ sealed class Plugin : BaseUnityPlugin
             On.ModManager.ModMerger.UpdatePaletteLineWithConflict += ModMerger_UpdatePaletteLineWithConflict;
             On.ModManager.ModApplyer.ApplyModsThread += ModApplyer_ApplyModsThread;
             //IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
-            //IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
+            IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
             //IL.Menu.ModdingMenu.Singal += ModdingMenu_Singal;
             IL.PNGSaver.SaveTextureToFile += PNGSaver_SaveTextureToFile;
-            IL.AssetManager.ResolveFilePath_string_bool += AssetManager_ResolveFilePath;
-            IL.AssetManager.ResolveDirectory += AssetManager_ResolveDirectory;
             IL.AssetManager.ListDirectory_string_bool_bool_bool += AssetManager_ListDirectory_string_bool_bool_bool;
+            OtherFixes.ApplyHooks();
         }
         catch (Exception e) { Logger.LogError(e); }
     }
@@ -56,62 +54,6 @@ sealed class Plugin : BaseUnityPlugin
         var c = new ILCursor(il);
         while (c.TryGotoNext(MoveType.After, x => x.MatchLdloc(8)))
         { c.Emit(OpCodes.Callvirt, typeof(string).GetMethod(nameof(string.ToLowerInvariant))); }
-    }
-
-    private void AssetManager_ResolveDirectory(ILContext il)
-    {
-        ReverseForLoop(il, 3);
-    }
-
-    private void AssetManager_ResolveFilePath(ILContext il)
-    {
-        ReverseForLoop(il, 1);
-    }
-
-    /// <summary>
-    /// load order goes from highest to lowest when stopping at the first item found
-    /// you only go from lowest to highest when the affects stack
-    /// </summary>
-    private void ReverseForLoop(ILContext il, int loc)
-    {
-        var c = new ILCursor(il);
-        if (c.TryGotoNext(MoveType.Before,
-            x => x.MatchLdcI4(0),
-            x => x.MatchStloc(loc),
-            x => x.MatchBr(out _),
-            x => x.MatchLdsfld<ModManager>(nameof(ModManager.ActiveMods))
-            ))
-        {
-            c.Index++;
-            c.Emit(OpCodes.Pop);
-            c.EmitDelegate(() => ModManager.ActiveMods.Count - 1);
-        }
-        else { Logger.LogError("flip AssetManager pt 1 failed"); return; }
-
-        if (c.TryGotoNext(MoveType.After,
-            x => x.MatchLdloc(loc),
-            x => x.MatchLdcI4(1),
-            x => x.MatchAdd()
-            ))
-        {
-            c.EmitDelegate((int i) => i - 2);
-        }
-        else { Logger.LogError("flip AssetManager pt 2 failed"); return; }
-
-        ILLabel label = null!;
-        if (c.TryGotoNext(MoveType.After,
-            x => x.MatchLdloc(loc),
-            x => x.MatchLdsfld<ModManager>(nameof(ModManager.ActiveMods)),
-            x => x.MatchCallvirt(out _),
-            x => x.MatchBlt(out label)
-            ))
-        {
-            c.Index -= 3;
-            c.RemoveRange(3);
-            c.Emit(OpCodes.Ldc_I4_0);
-            c.Emit(OpCodes.Bge, label);
-        }
-        else { Logger.LogError("flip AssetManager pt 3 failed"); return; }
     }
 
     /// <summary>
@@ -180,8 +122,7 @@ sealed class Plugin : BaseUnityPlugin
 
     /// <summary>
     /// DON'T GENERATE CHECKSUMS FOR DISABLED MODS (that's silly)
-    /// BUT ENABLEDMODS ISN'T ALWAYS UP TO DATE!!! so we can't do this now
-    /// base game does this
+    /// this works because of the hook to ModApplyer.ApplyModsThread
     /// </summary>
     private void ModManager_LoadModFromJson1(ILContext il)
     {
@@ -196,7 +137,7 @@ sealed class Plugin : BaseUnityPlugin
             c.EmitDelegate((bool flag, RainWorld rainWorld, ModManager.Mod mod) => flag || !rainWorld.options.enabledMods.Contains(mod.id));
         }
 
-        else { Logger.LogError("failed to hook ALoadModFromJson!"); }
+        else { Logger.LogError("failed to hook LoadModFromJson!"); }
     }
 
     private void PendingApply_ApplyMerges(MonoMod.Cil.ILContext il)
@@ -326,7 +267,7 @@ sealed class Plugin : BaseUnityPlugin
                         string text2 = text.Substring(text.IndexOf(mod.path) + mod.path.Length).ToLowerInvariant();
                         text2 = text2.Substring(text2.Substring(1).IndexOf(Path.DirectorySeparatorChar) + 1);
 
-                        modMerger.AddPendingApply(mod, text2, text, false, true); //only modification files are added to this list now
+                        modMerger.AddPendingApply(mod, text2, text, true); //only modification files are added to this list now
                     }
                 }
             }
