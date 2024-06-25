@@ -9,6 +9,9 @@ using System.Security.Cryptography;
 using System.Text;
 using MonoMod.Cil;
 using Mono.Cecil.Cil;
+using UnityEngine;
+using MonoMod.RuntimeDetour;
+using System.Reflection;
 
 // Allows access to private members
 #pragma warning disable CS0618
@@ -17,7 +20,7 @@ using Mono.Cecil.Cil;
 
 namespace MergeFix;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.3.0")]
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.3.9")]
 sealed class MergeFixPlugin : BaseUnityPlugin
 {
     public static MergeFixPlugin instance;
@@ -37,11 +40,29 @@ sealed class MergeFixPlugin : BaseUnityPlugin
             //IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
             IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
             //IL.Menu.ModdingMenu.Singal += ModdingMenu_Singal;
-            IL.PNGSaver.SaveTextureToFile += PNGSaver_SaveTextureToFile;
             IL.AssetManager.ListDirectory_string_bool_bool_bool += AssetManager_ListDirectory_string_bool_bool_bool;
+            IL.WorldLoader.FindRoomFile += WorldLoader_FindRoomFile;
+
             OtherFixes.ApplyHooks();
+            MemoryMod.ApplyHooks();
+            MapMergerFixesOop.ApplyHooks();
         }
         catch (Exception e) { Logger.LogError(e); }
+    }
+
+
+    private void WorldLoader_FindRoomFile(ILContext il)
+    {
+        var c = new ILCursor(il);
+        if (c.TryGotoNext(MoveType.Before, x => x.MatchCall(typeof(Custom).GetMethod(nameof(Custom.LogWarning), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))))
+        {
+            c.Remove();
+            c.Emit(OpCodes.Pop);
+            //c.Emit(OpCodes.Ldarg_0);
+            //c.Emit(OpCodes.Ldarg_2);
+            //c.EmitDelegate((string orig, string roomName, string additionalAppend) => roomName + additionalAppend); //this works fine in base game but SBCameraScroll checks if null instead of checking if exists
+            //c.Emit(OpCodes.Ret);
+        }
     }
 
     /// <summary>
@@ -54,23 +75,6 @@ sealed class MergeFixPlugin : BaseUnityPlugin
         var c = new ILCursor(il);
         while (c.TryGotoNext(MoveType.After, x => x.MatchLdloc(8)))
         { c.Emit(OpCodes.Callvirt, typeof(string).GetMethod(nameof(string.ToLowerInvariant))); }
-    }
-
-    /// <summary>
-    /// I told vigaro to do this for map merger code, as otherwise it eats up a ton of memory
-    /// </summary>
-    private void PNGSaver_SaveTextureToFile(ILContext il)
-    {
-        var c = new ILCursor(il);
-        if (c.TryGotoNext(MoveType.After, x => x.MatchCall(typeof(File), nameof(File.WriteAllBytes))))
-        {
-            c.Emit(OpCodes.Ldloc_0);
-            c.Emit(OpCodes.Call, typeof(UnityEngine.Object).GetMethod(nameof(Destroy), new Type[] {typeof(UnityEngine.Object)}));
-        }
-        else
-        {
-            Logger.LogError("failed to il hook PNGSaver!");
-        }
     }
 
     /// <summary>
@@ -250,29 +254,43 @@ sealed class MergeFixPlugin : BaseUnityPlugin
                         break;
                     }
                 }
-                if (id != -1 && pendingEnabled[id])
+                if (id == -1 || !pendingEnabled[id]) continue;
+
+                modMerger.DeterminePaletteConflicts(mod.path);
+
+                List<string> basePaths = new();
+                if (mod.hasTargetedVersionFolder) basePaths.Add(mod.TargetedPath);
+                if (mod.hasNewestFolder) basePaths.Add(mod.NewestPath);
+                basePaths.Add(mod.path);
+
+                List<string> usedPaths = new();
+
+                foreach (string basePath in basePaths)
                 {
                     applyer.activeMergingMod = id;
-                    modMerger.DeterminePaletteConflicts(mod.path);
-                    string modifyPath = Path.Combine(mod.path, "modify");
+                    string modifyPath = Path.Combine(basePath, "modify");
                     if (!Directory.Exists(modifyPath)) continue;
 
-                    string[] modFiles = Directory.GetFiles(Path.Combine(mod.path, "modify"), "*.txt", SearchOption.AllDirectories);
+                    string[] modFiles = Directory.GetFiles(Path.Combine(basePath, "modify"), "*.txt", SearchOption.AllDirectories);
                     applyer.mergeFileInd = 0;
                     applyer.mergeFileLength = modFiles.Length;
                     for (int num2 = 0; num2 < modFiles.Length; num2++)
                     {
                         applyer.mergeFileInd = num2;
                         string text = modFiles[num2];
-                        string text2 = text.Substring(text.IndexOf(mod.path) + mod.path.Length).ToLowerInvariant();
+                        string text2 = text.Substring(text.IndexOf(basePath) + basePath.Length).ToLowerInvariant();
                         text2 = text2.Substring(text2.Substring(1).IndexOf(Path.DirectorySeparatorChar) + 1);
 
-                        modMerger.AddPendingApply(mod, text2, text, true); //only modification files are added to this list now
+                        if (!usedPaths.Contains(text2))
+                        {
+                            modMerger.AddPendingApply(mod, text2, text, true); //only modification files are added to this list now
+                            usedPaths.Add(text2);
+                        }
                     }
                 }
             }
             modMerger.ExecutePendingMerge(applyer);
-            modMerger.MergeWorldMaps(applyer);
+            ModManager.MapMerger.MergeWorldMaps(modMerger, applyer);
         }
         catch (Exception e) { Logger.LogError(e); throw; }
     }
