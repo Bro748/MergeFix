@@ -17,6 +17,22 @@ internal static class OtherFixes
         IL.RegionState.AdaptWorldToRegionState += RegionState_AdaptRegionStateToWorld;
         On.DeathFallGraphic.InitiateSprites += DeathFallGraphic_InitiateSprites;
         On.WaterLight.NewRoom += WaterLight_NewRoom;
+        On.ShortcutGraphics.GenerateSprites += ShortcutGraphics_GenerateSprites;
+    }
+
+    private static void ShortcutGraphics_GenerateSprites(On.ShortcutGraphics.orig_GenerateSprites orig, ShortcutGraphics self)
+    {
+        orig(self);
+        if (!ModManager.MMF || !MoreSlugcats.MMF.cfgShowUnderwaterShortcuts.Value)
+        { return; }
+
+        for (int l = 0; l < self.room.shortcuts.Length; l++)
+        {
+            if (self.entranceSprites[l, 0] != null)
+            {
+                self.camera.ReturnFContainer("GrabShaders").AddChild(self.entranceSprites[l, 1]);
+            }
+        }
     }
 
     private static void WaterLight_NewRoom(On.WaterLight.orig_NewRoom orig, WaterLight self, Water waterObject)

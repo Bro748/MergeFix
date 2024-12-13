@@ -18,6 +18,27 @@ internal static class MemoryMod
         new Hook(typeof(HUD.Map).GetProperty(nameof(HUD.Map.discoverTexture), BindingFlags.Public | BindingFlags.Instance).GetSetMethod(), Map_SetDiscoverTexture);
         On.PlayerProgression.LoadByteStringIntoMapTexture += PlayerProgression_LoadByteStringIntoMapTexture;
         On.Room.Unloaded += Room_Unloaded;
+        On.Menu.Remix.MenuModList.cctor += MenuModList_cctor;
+    }
+
+    private static void MenuModList_cctor(On.Menu.Remix.MenuModList.orig_cctor orig)
+    {
+        orig();
+
+        //we have to hook weirdly late due to static constructor nonsense
+        On.Menu.Remix.MenuModList.ModButton._ProcessThumbnail += ModButton__ProcessThumbnail;
+        On.Menu.Remix.MenuModList.cctor += MenuModList_cctor;
+    }
+
+    private static void ModButton__ProcessThumbnail(On.Menu.Remix.MenuModList.ModButton.orig__ProcessThumbnail orig, Menu.Remix.MenuModList.ModButton self)
+    {
+        try
+        {
+            UnityEngine.Object.Destroy(self._thumb);
+            UnityEngine.Object.Destroy(self._thumbG);
+        }
+        catch { }
+        orig(self);
     }
 
     private static void Room_Unloaded(On.Room.orig_Unloaded orig, Room self)

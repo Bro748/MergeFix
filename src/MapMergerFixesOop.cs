@@ -7,6 +7,8 @@ using UnityEngine;
 using System;
 using static ModManager.MapMerger;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 
 namespace MergeFix;
 
@@ -17,7 +19,78 @@ internal static class MapMergerFixesOop
         On.ModManager.MapMerger.GraftOnto += MapMerger_GraftOnto;
         On.ModManager.MapMerger.MapConnectionLine.SoftEquals += MapConnectionLine_SoftEquals;
         IL.ModManager.MapMerger.MergeMapFiles += MapMerger_MergeMapFiles;
+        On.ModManager.MapMerger.MergeMapData.GenerateDefault += MergeMapData_GenerateDefault;
+        IL.ModManager.MapMerger.MergeWorldMaps += MapMerger_MergeWorldMaps;
+    }
 
+    private static void MapMerger_MergeWorldMaps(ILContext il)
+    {
+        try
+        {
+            var c = new ILCursor(il);
+
+            c.GotoNext(MoveType.Before,
+                x => x.MatchLdloc(0),
+                x => x.MatchCallvirt<List<string>>("get_Count"),
+                x => x.MatchBrtrue(out _));
+            ILLabel label = c.MarkLabel();
+
+            c.Index = 0;
+            c.GotoNext(MoveType.After,
+                x => x.MatchNewobj<List<string>>(),
+                x => x.MatchLdloc(0)
+                );
+            c.Emit(OpCodes.Ldarg_0);
+            c.Emit(OpCodes.Ldarg_1);
+            c.Emit(OpCodes.Ldloc_0);
+            c.EmitDelegate((ModManager.ModMerger merger, ModManager.ModApplyer applyer, List<string> list) =>
+            {
+                foreach (MergeMapData mergeMapData in merger.modMapData)
+                {
+                    string pngPath = AssetManager.ResolveFilePath(Path.Combine("world", mergeMapData.region, "map_" + mergeMapData.MapKey + ".png"));
+                    if (File.Exists(pngPath))
+                    {
+                        string text2 = mergeMapData.MapKey;
+                        if (!applyer.worldMaps.ContainsKey(text2))
+                        {
+                            applyer.worldMaps[text2] = [];
+                        }
+                        applyer.worldMaps[text2].Add(mergeMapData);
+                        if (!list.Contains(text2))
+                        {
+                            list.Add(text2);
+                        }
+                        applyer.worldMapImages[text2] = [pngPath];
+                    }
+                }
+            });
+            c.Emit(OpCodes.Br_S, label);
+        }
+        catch (Exception e) { MergeFixPlugin.BepLog("failed to il hook MapMerger.MergeWorldMaps\n" + e); }
+    }
+
+    /// <summary>
+    /// too lazy to il hook
+    /// </summary>
+    private static MergeMapData MergeMapData_GenerateDefault(On.ModManager.MapMerger.MergeMapData.orig_GenerateDefault orig, string sourcePath, ModManager.Mod modApplyFrom, bool baseFile)
+    {
+        string text = "";
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourcePath);
+        string text2 = fileNameWithoutExtension.Replace("map_", "");
+        if (text2.Contains('-'))
+        {
+            string[] array = text2.Split(new char[]
+            {
+            '-'
+            });
+            if (array.Length == 2)
+            {
+                text = array[1];
+                text2 = array[0];
+            }
+        }
+        string text3 = ResolveVersionSource(modApplyFrom, Path.Combine("world", text2, fileNameWithoutExtension + ".txt"), true);
+        return new MergeMapData(text2, text, Path.GetFileNameWithoutExtension(sourcePath), text3, default, baseFile ? null : modApplyFrom);
     }
 
     private static void MapMerger_MergeMapFiles(ILContext il)
@@ -63,12 +136,14 @@ internal static class MapMergerFixesOop
         //resize accordingly so that they match size and position
         if (mapTexture.width < largestWidth || mapTextureSubHeight < largestHeight)
         {
+            UnityEngine.Debug.Log("resizing map to " + new Vector2(largestWidth, largestHeight));
             OmniResize(mapTexture, Math.Max(0, 0 - xOrigin), Math.Max(0, 0 - yOrigin), largestWidth - mapTexture.width, largestHeight - mapTextureSubHeight);
 
             //set the map origin to what it was just resized to, so that future merges can be done properly
             mapOrigin = new Vector2(Math.Min(mapOrigin.x, localBottomLeft.x), Math.Min(mapOrigin.y, localBottomLeft.y));
         }
 
+        UnityEngine.Debug.Log("merging at position " + (localBottomLeft - mapOrigin));
         TransBlit(mapTexture, localTexture, IntVector2.FromVector2(localBottomLeft - mapOrigin));
 
 
@@ -86,16 +161,18 @@ internal static class MapMergerFixesOop
         Color32[] pixels = texture.GetPixels32();
         Color32[] pixels2 = texture2.GetPixels32();
 
-        for (int l = 0; l < 2; l++)
+        for (int l = 0; l <= 2; l++)
         {
             for (int i = 0; i < texture2.width; i++)
             {
                 for (int j = 0; j < localTextureSubHeight; j++)
                 {
-                    Color32 color2 = pixels2[i + (j + localTextureSubHeight * l) * texture2.width];
+                    Color32 color2 = pixels2[i + (j + (localTextureSubHeight * l)) * texture2.width];
                     if (color2.r != color.r || color2.g != color.g || color2.b != color.b || color2.a != color.a)
                     {
-                        pixels[(i + offset.x) + (j + offset.y + mapTextureSubHeight * l) * texture.width] = color2;
+                        if (color2.g == color.g / 2 && color2.r == 0 && color2.b == 0 && color2.a == color.a)
+                        { color2 = color; }
+                        pixels[(i + offset.x) + (j + offset.y + (mapTextureSubHeight * l)) * texture.width] = color2;
                     }
                 }
             }
