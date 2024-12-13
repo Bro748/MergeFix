@@ -31,40 +31,41 @@ internal static class MapMergerFixesOop
 
             c.GotoNext(MoveType.Before,
                 x => x.MatchLdloc(0),
-                x => x.MatchCallvirt<List<string>>("get_Count"),
+                x => x.MatchCallvirt(typeof(List<string>).GetProperty(nameof(List<string>.Count)).GetGetMethod()),
                 x => x.MatchBrtrue(out _));
-            ILLabel label = c.MarkLabel();
+            ILLabel brTo = c.MarkLabel();
 
             c.Index = 0;
             c.GotoNext(MoveType.After,
                 x => x.MatchNewobj<List<string>>(),
-                x => x.MatchLdloc(0)
-                );
+                x => x.MatchStloc(0));
+
             c.Emit(OpCodes.Ldarg_0);
             c.Emit(OpCodes.Ldarg_1);
             c.Emit(OpCodes.Ldloc_0);
-            c.EmitDelegate((ModManager.ModMerger merger, ModManager.ModApplyer applyer, List<string> list) =>
+
+            c.EmitDelegate(delegate (ModManager.ModMerger merger, ModManager.ModApplyer applyer, List<string> list)
             {
                 foreach (MergeMapData mergeMapData in merger.modMapData)
                 {
-                    string pngPath = AssetManager.ResolveFilePath(Path.Combine("world", mergeMapData.region, "map_" + mergeMapData.MapKey + ".png"));
-                    if (File.Exists(pngPath))
+                    string path = AssetManager.ResolveFilePath(Path.Combine("world", mergeMapData.region, "map_" + mergeMapData.MapKey + ".png"));
+                    if (File.Exists(path))
                     {
-                        string text2 = mergeMapData.MapKey;
-                        if (!applyer.worldMaps.ContainsKey(text2))
+                        string mapKey = mergeMapData.MapKey;
+                        if (!applyer.worldMaps.ContainsKey(mapKey))
                         {
-                            applyer.worldMaps[text2] = [];
+                            applyer.worldMaps[mapKey] = [];
                         }
-                        applyer.worldMaps[text2].Add(mergeMapData);
-                        if (!list.Contains(text2))
+                        applyer.worldMaps[mapKey].Add(mergeMapData);
+                        if (!list.Contains(mapKey))
                         {
-                            list.Add(text2);
+                            list.Add(mapKey);
                         }
-                        applyer.worldMapImages[text2] = [pngPath];
+                        applyer.worldMapImages[mapKey] = [path];
                     }
                 }
             });
-            c.Emit(OpCodes.Br_S, label);
+            c.Emit(OpCodes.Br_S, brTo);
         }
         catch (Exception e) { MergeFixPlugin.BepLog("failed to il hook MapMerger.MergeWorldMaps\n" + e); }
     }
