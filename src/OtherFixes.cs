@@ -17,9 +17,11 @@ internal static class OtherFixes
         IL.RegionState.AdaptWorldToRegionState += RegionState_AdaptRegionStateToWorld;
         On.DeathFallGraphic.InitiateSprites += DeathFallGraphic_InitiateSprites;
         On.WaterLight.NewRoom += WaterLight_NewRoom;
+        IL.WaterLight.NewRoom += WaterLight_NewRoom1;
         On.ShortcutGraphics.GenerateSprites += ShortcutGraphics_GenerateSprites;
         On.Menu.MultiplayerMenu.PopulateSafariButtons += MultiplayerMenu_PopulateSafariButtons;
     }
+
 
     private static void MultiplayerMenu_PopulateSafariButtons(On.Menu.MultiplayerMenu.orig_PopulateSafariButtons orig, Menu.MultiplayerMenu self)
     {
@@ -43,11 +45,26 @@ internal static class OtherFixes
         }
     }
 
+    private static void WaterLight_NewRoom1(ILContext il)
+    {
+        try
+        {
+            var c = new ILCursor(il);
+            c.TryGotoNext(MoveType.After, x => x.MatchLdfld<Room>(nameof(Room.roomRain)));
+            c.EmitDelegate((RoomRain _) => true);
+        }
+        catch (Exception e)
+        {
+            MergeFixPlugin.BepLog("failed to il hook WaterLight_NewRoom\n" + e.ToString());
+        }
+    }
+
     private static void WaterLight_NewRoom(On.WaterLight.orig_NewRoom orig, WaterLight self, Water waterObject)
     {
         if (waterObject.room != null && !Futile.atlasManager.DoesContainElementWithName("RainMask_" + waterObject.room.abstractRoom.name))
         {
-            new RoomRain(waterObject.room.game.globalRain, waterObject.room);
+            UnityEngine.Debug.Log("adding fake RoomRain for WaterLight");
+            waterObject.room.roomRain = CreateFakeRoomRain(waterObject.room);
         }
         orig(self, waterObject);
     }
@@ -56,9 +73,20 @@ internal static class OtherFixes
     {
         if (!Futile.atlasManager.DoesContainElementWithName("RainMask_" + self.room.abstractRoom.name))
         {
-            new RoomRain(self.room.game.globalRain, self.room);
+            CreateFakeRoomRain(self.room);
         }
         orig(self, sLeaser, rCam);
+    }
+
+    private static RoomRain CreateFakeRoomRain(Room rm)
+    {
+        var rr = new RoomRain(rm.game.globalRain, rm);
+
+        if (rm.waterObject != null && !ModManager.MSC && (rm.roomSettings.DangerType != RoomRain.DangerType.Flood || rm.roomSettings.DangerType != RoomRain.DangerType.FloodAndRain))
+        {
+            rm.waterObject.fWaterLevel = rm.waterObject.originalWaterLevel;
+        }
+        return rr;
     }
 
     private static void RegionState_AdaptRegionStateToWorld(ILContext il)
