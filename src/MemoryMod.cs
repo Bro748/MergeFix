@@ -9,6 +9,9 @@ using System.Reflection;
 
 namespace MergeFix;
 
+/// <summary>
+/// this is mostly destroying various PNGs the game uses that it doesn't destroy
+/// </summary>
 internal static class MemoryMod
 {
     public static void ApplyHooks()

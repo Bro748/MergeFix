@@ -39,7 +39,6 @@ sealed class MergeFixPlugin : BaseUnityPlugin
             On.ModManager.ModApplyer.ApplyModsThread += ModApplyer_ApplyModsThread;
             //IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
             IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
-            //IL.Menu.ModdingMenu.Singal += ModdingMenu_Singal;
             IL.AssetManager.ListDirectory_string_bool_bool_bool += AssetManager_ListDirectory_string_bool_bool_bool;
             IL.WorldLoader.FindRoomFile += WorldLoader_FindRoomFile;
 
@@ -78,7 +77,7 @@ sealed class MergeFixPlugin : BaseUnityPlugin
     }
 
     /// <summary>
-    /// fix checksums not updating on applying causing double-applying
+    /// fix checksums not updating on applying causing the game to reapply mods twice in a row
     /// </summary>
     private void ModApplyer_ApplyModsThread(On.ModManager.ModApplyer.orig_ApplyModsThread orig, ModManager.ModApplyer self)
     {
@@ -99,29 +98,6 @@ sealed class MergeFixPlugin : BaseUnityPlugin
     private void ModMerger_DeterminePaletteConflicts(On.ModManager.ModMerger.orig_DeterminePaletteConflicts orig, ModManager.ModMerger self, string modPath)
     {
         return; //no
-    }
-
-    /// <summary>
-    /// FIX LOAD ORDER SCRAMBLE (this is in base game now, not applied)
-    /// </summary>
-    private void ModdingMenu_Singal(ILContext il)
-    {
-        var c = new ILCursor(il);
-        if (c.TryGotoNext(MoveType.After,
-            x => x.MatchLdloc(3),
-            x => x.MatchCall(typeof(Enumerable), nameof(Enumerable.Reverse)),
-            x => x.MatchCall(typeof(Enumerable), nameof(Enumerable.ToList))
-            ))
-        {
-            c.EmitDelegate((List<int> list) => {
-                list.Reverse(); //flip it back so that the values line up with the mods
-                int highest = list.Max((int t) => t); //find the highest mod
-                list = list.Select(t => highest - t).ToList(); //invert the real load order
-                return list;
-            });
-        }
-
-        else { Logger.LogError("failed to hook ALoadModFromJson!"); }
     }
 
     /// <summary>

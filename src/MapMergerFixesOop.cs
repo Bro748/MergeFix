@@ -23,6 +23,9 @@ internal static class MapMergerFixesOop
         IL.ModManager.MapMerger.MergeWorldMaps += MapMerger_MergeWorldMaps;
     }
 
+    /// <summary>
+    /// significantly speeds up map file consolidation, since we already have a list of all files to use
+    /// </summary>
     private static void MapMerger_MergeWorldMaps(ILContext il)
     {
         try
@@ -72,28 +75,33 @@ internal static class MapMergerFixesOop
 
     /// <summary>
     /// too lazy to il hook
+    /// fixes slugcat extraction using the wrong local which would attach 'map_' to the region name
     /// </summary>
     private static MergeMapData MergeMapData_GenerateDefault(On.ModManager.MapMerger.MergeMapData.orig_GenerateDefault orig, string sourcePath, ModManager.Mod modApplyFrom, bool baseFile)
     {
-        string text = "";
+        string slugcat = "";
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourcePath);
-        string text2 = fileNameWithoutExtension.Replace("map_", "");
-        if (text2.Contains('-'))
+        string regionName = fileNameWithoutExtension.Replace("map_", "");
+        if (regionName.Contains('-'))
         {
-            string[] array = text2.Split(new char[]
+            string[] array = regionName.Split(new char[]
             {
             '-'
             });
             if (array.Length == 2)
             {
-                text = array[1];
-                text2 = array[0];
+                slugcat = array[1];
+                regionName = array[0];
             }
         }
-        string text3 = ResolveVersionSource(modApplyFrom, Path.Combine("world", text2, fileNameWithoutExtension + ".txt"), true);
-        return new MergeMapData(text2, text, Path.GetFileNameWithoutExtension(sourcePath), text3, default, baseFile ? null : modApplyFrom);
+        string text3 = ResolveVersionSource(modApplyFrom, Path.Combine("world", regionName, fileNameWithoutExtension + ".txt"), true);
+        return new MergeMapData(regionName, slugcat, Path.GetFileNameWithoutExtension(sourcePath), text3, default, baseFile ? null : modApplyFrom);
     }
 
+    /// <summary>
+    /// fixes reference room never being added to the list of rooms to find missing sizes
+    /// also fixes a rounding issue
+    /// </summary>
     private static void MapMerger_MergeMapFiles(ILContext il)
     {
         var c = new ILCursor(il);
@@ -113,6 +121,10 @@ internal static class MapMergerFixesOop
         }
     }
 
+    /// <summary>
+    /// the whole point of SoftEquals is to determine if the connection line should be replaced. 
+    /// It shouldn't check if the positions are the same because the use of this would be to update the positions.
+    /// </summary>
     private static bool MapConnectionLine_SoftEquals(On.ModManager.MapMerger.MapConnectionLine.orig_SoftEquals orig, ref MapConnectionLine self, MapConnectionLine line)
     {
         //oop
@@ -153,6 +165,10 @@ internal static class MapMergerFixesOop
 
         
     }
+
+    /// <summary>
+    /// this is significantly faster than what's in the game right now due to only blitting what's necessary
+    /// </summary>
     public static void TransBlit(Texture2D texture, Texture2D texture2, IntVector2 offset)
     {
         int mapTextureSubHeight = texture.height / 3;
