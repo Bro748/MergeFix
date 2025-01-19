@@ -18,6 +18,14 @@ internal static class OtherFixes
         On.DeathFallGraphic.InitiateSprites += DeathFallGraphic_InitiateSprites;
         On.WaterLight.NewRoom += WaterLight_NewRoom;
         On.ShortcutGraphics.GenerateSprites += ShortcutGraphics_GenerateSprites;
+        On.Menu.MultiplayerMenu.PopulateSafariButtons += MultiplayerMenu_PopulateSafariButtons;
+    }
+
+    private static void MultiplayerMenu_PopulateSafariButtons(On.Menu.MultiplayerMenu.orig_PopulateSafariButtons orig, Menu.MultiplayerMenu self)
+    {
+        if (self.GetGameTypeSetup.safariID >= ExtEnum<MultiplayerUnlocks.SafariUnlockID>.values.entries.Count)
+        { self.GetGameTypeSetup.safariID = 0; }
+        orig(self);
     }
 
     private static void ShortcutGraphics_GenerateSprites(On.ShortcutGraphics.orig_GenerateSprites orig, ShortcutGraphics self)
