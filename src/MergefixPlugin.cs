@@ -20,7 +20,7 @@ using System.Reflection;
 
 namespace MergeFix;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.4.1")]
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.6.4")]
 sealed class MergeFixPlugin : BaseUnityPlugin
 {
     public static MergeFixPlugin instance;
