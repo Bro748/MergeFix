@@ -20,7 +20,7 @@ using System.Reflection;
 
 namespace MergeFix;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.6.4")]
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.7")]
 sealed class MergeFixPlugin : BaseUnityPlugin
 {
     public static MergeFixPlugin instance;
@@ -36,54 +36,12 @@ sealed class MergeFixPlugin : BaseUnityPlugin
             On.AssetManager.CreateDirectoryMd5_string_string += AssetManager_CreateDirectoryMd5;
             On.ModManager.ModMerger.DeterminePaletteConflicts += ModMerger_DeterminePaletteConflicts;
             On.ModManager.ModMerger.UpdatePaletteLineWithConflict += ModMerger_UpdatePaletteLineWithConflict;
-            On.ModManager.ModApplyer.ApplyModsThread += ModApplyer_ApplyModsThread;
             //IL.ModManager.ModMerger.PendingApply.ApplyMerges += PendingApply_ApplyMerges;
-            IL.ModManager.LoadModFromJson += ModManager_LoadModFromJson1;
-            IL.AssetManager.ListDirectory_string_bool_bool_bool += AssetManager_ListDirectory_string_bool_bool_bool;
-            IL.WorldLoader.FindRoomFile += WorldLoader_FindRoomFile;
 
             OtherFixes.ApplyHooks();
             MemoryMod.ApplyHooks();
-            MapMergerFixesOop.ApplyHooks();
         }
         catch (Exception e) { Logger.LogError(e); }
-    }
-
-
-    private void WorldLoader_FindRoomFile(ILContext il)
-    {
-        var c = new ILCursor(il);
-        if (c.TryGotoNext(MoveType.Before, x => x.MatchCall(typeof(Custom).GetMethod(nameof(Custom.LogWarning), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))))
-        {
-            c.Remove();
-            c.Emit(OpCodes.Pop);
-            //c.Emit(OpCodes.Ldarg_0);
-            //c.Emit(OpCodes.Ldarg_2);
-            //c.EmitDelegate((string orig, string roomName, string additionalAppend) => roomName + additionalAppend); //this works fine in base game but SBCameraScroll checks if null instead of checking if exists
-            //c.Emit(OpCodes.Ret);
-        }
-    }
-
-    /// <summary>
-    /// don't forget ToLowerInvariant() your filepaths! lots of things break otherwise
-    /// not in base game since those are all lower anyways, but mods use inconsistent case all the time
-    /// and also... we obviously don't want to have case sensitive file code because it causes goofy inconsistencies
-    /// </summary>
-    private void AssetManager_ListDirectory_string_bool_bool_bool(ILContext il)
-    {
-        var c = new ILCursor(il);
-        while (c.TryGotoNext(MoveType.After, x => x.MatchLdloc(8)))
-        { c.Emit(OpCodes.Callvirt, typeof(string).GetMethod(nameof(string.ToLowerInvariant))); }
-    }
-
-    /// <summary>
-    /// fix checksums not updating on applying causing the game to reapply mods twice in a row
-    /// </summary>
-    private void ModApplyer_ApplyModsThread(On.ModManager.ModApplyer.orig_ApplyModsThread orig, ModManager.ModApplyer self)
-    {
-        orig(self);
-        for (int i = 0; i < ModManager.InstalledMods.Count; i++)
-        { self.manager.rainWorld.options.modChecksums[ModManager.InstalledMods[i].id] = ModManager.InstalledMods[i].checksum; }
     }
 
     private string ModMerger_UpdatePaletteLineWithConflict(On.ModManager.ModMerger.orig_UpdatePaletteLineWithConflict orig, ModManager.ModMerger self, string lineKey, string lineValue)
@@ -98,46 +56,6 @@ sealed class MergeFixPlugin : BaseUnityPlugin
     private void ModMerger_DeterminePaletteConflicts(On.ModManager.ModMerger.orig_DeterminePaletteConflicts orig, ModManager.ModMerger self, string modPath)
     {
         return; //no
-    }
-
-    /// <summary>
-    /// DON'T GENERATE CHECKSUMS FOR DISABLED MODS (that's silly)
-    /// this works because of the hook to ModApplyer.ApplyModsThread
-    /// </summary>
-    private void ModManager_LoadModFromJson1(ILContext il)
-    {
-        var c = new ILCursor(il);
-        if (c.TryGotoNext(MoveType.After,
-            x => x.MatchLdloc(0),
-            x => x.MatchLdfld<ModManager.Mod>("checksumOverrideVersion")
-            ))
-        {
-            c.Emit(OpCodes.Ldarg_0);
-            c.Emit(OpCodes.Ldloc_0);
-            c.EmitDelegate((bool flag, RainWorld rainWorld, ModManager.Mod mod) => flag || !rainWorld.options.enabledMods.Contains(mod.id));
-        }
-
-        else { Logger.LogError("failed to hook LoadModFromJson!"); }
-    }
-
-    private void PendingApply_ApplyMerges(MonoMod.Cil.ILContext il)
-    {
-        var c = new ILCursor(il);
-        if (c.TryGotoNext(MoveType.After,
-            x => x.MatchLdloc(0),
-            x => x.MatchLdstr("_settings.txt"),
-            x => x.MatchCallvirt<string>("EndsWith"),
-            x => x.MatchBrtrue(out _),
-            x => x.MatchLdloc(0),
-            x => x.MatchLdstr("_settingstemplate_"),
-            x => x.MatchCallvirt<string>("Contains")
-            ))
-        {
-            c.Emit(OpCodes.Ldloc_0);
-            c.EmitDelegate((bool flag, string fileName) => flag || fileName.Contains("settings-"));
-        }
-
-        else { Logger.LogError("failed to hook ApplyMerges!"); }
     }
 
 
