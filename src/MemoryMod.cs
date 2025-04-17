@@ -16,7 +16,37 @@ internal static class MemoryMod
 {
     public static void ApplyHooks()
     {
-        //On.Room.Unloaded += Room_Unloaded;
+        On.Room.Unloaded += Room_Unloaded;
+        IL.OverWorld.WorldLoaded += OverWorld_WorldLoaded;
+    }
+
+    private static void OverWorld_WorldLoaded(ILContext il)
+    {
+        var c = new ILCursor(il);
+
+        while (c.TryGotoNext(MoveType.After,
+            x => x.MatchLdloc(0),
+            x => x.MatchLdfld<World>("name"),
+            x => x.MatchLdloc(1),
+            x => x.MatchLdfld<World>("name"),
+            x => x.MatchCall<string>("op_Inequality")
+            ))
+        { }
+
+        c.Emit(OpCodes.Ldloc, 0);
+        c.Emit(OpCodes.Ldloc, 1);
+        c.EmitDelegate((bool orig, World oldWorld, World newWorld) => {
+            if (oldWorld.name != newWorld.name)
+            {
+                foreach (var room in oldWorld.activeRooms)
+                {
+                    if (room.world == oldWorld)
+                        room.Unloaded();
+                }
+            }
+
+            return false;
+        });
     }
 
     //not yet implemented in 1.10.0 because buggy

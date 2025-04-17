@@ -7,6 +7,9 @@ using System.Linq;
 using System;
 using System.Security.Cryptography;
 using System.Text;
+using static ModManager;
+using static ModManager.ModMerger;
+
 using MonoMod.Cil;
 using Mono.Cecil.Cil;
 using UnityEngine;
@@ -20,7 +23,7 @@ using System.Reflection;
 
 namespace MergeFix;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.7")]
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.71")]
 sealed class MergeFixPlugin : BaseUnityPlugin
 {
     public static MergeFixPlugin instance;
@@ -199,6 +202,11 @@ sealed class MergeFixPlugin : BaseUnityPlugin
             applyer.applyFileInd = 0;
             applyer.applyFileLength = self.moddedFiles.Count;
 
+            Dictionary<Mod, List<PendingApply>> subMergeActions2 = new Dictionary<Mod, List<PendingApply>>();
+            Dictionary<Mod, List<PendingApply>> subModifyActions2 = new Dictionary<Mod, List<PendingApply>>();
+            Dictionary<PendingApply, string> subBasePaths = new Dictionary<PendingApply, string>();
+            string mergedModsFolder = Custom.RootFolderDirectory() + Path.DirectorySeparatorChar + "mergedmods";
+
             foreach (KeyValuePair<string, List<ModManager.ModMerger.PendingApply>> kvp in self.moddedFiles)
             {
                 applyer.applyFileInd++;
@@ -233,18 +241,100 @@ sealed class MergeFixPlugin : BaseUnityPlugin
 
                     if (pendingApplies[j].isModification)
                     { modifications.Add(pendingApplies[j]); }
+
+
+                    if (pendingApplies[j].subApplies != null)
+                    {
+                        Mod mod = pendingApplies[j].modApplyFrom;
+                        foreach (PendingApply subApply in pendingApplies[j].subApplies)
+                        {
+                            if (subApply.mergeLines != null)
+                            {
+                                if (!subMergeActions2.TryGetValue(mod, out _))
+                                {
+                                    subMergeActions2[mod] = new List<PendingApply>();
+                                }
+                                subMergeActions2[mod].Add(subApply);
+                                subBasePaths[subApply] = kvp.Key;
+                            }
+                            if (subApply.isModification)
+                            {
+                                if (!subModifyActions2.TryGetValue(mod, out _))
+                                {
+                                    subModifyActions2[mod] = new List<PendingApply>();
+                                }
+                                subModifyActions2[mod].Add(subApply);
+                                subBasePaths[subApply] = kvp.Key;
+                            }
+                        }
+                    }
                 }
 
                 //merges always go first
-                foreach (ModManager.ModMerger.PendingApply pendingApply6 in merges)
+                foreach (PendingApply pendingApply6 in merges)
                 {
                     pendingApply6.ApplyMerges(pendingApply6.modApplyFrom, self, mergedPath);
                 }
-                foreach (ModManager.ModMerger.PendingApply pendingApply7 in modifications)
+                foreach (PendingApply pendingApply7 in modifications)
                 {
                     pendingApply7.ApplyModifications(mergedPath);
                 }
             }
+
+
+            foreach (KeyValuePair<Mod, List<PendingApply>> pair in subMergeActions2.OrderBy(x => x.Key.loadOrder))
+            {
+                foreach (PendingApply applyAction in pair.Value)
+                {
+                    string mergedDestination = (mergedModsFolder + subBasePaths[applyAction]).ToLowerInvariant();
+                    foreach (string destination in applyAction.fileDestinations)
+                    {
+                        string basePath = subBasePaths[applyAction].Substring(1);
+                        string destinationFilePath = RelativePathToAbsolute(destination, mergedDestination);
+                        string originFilePath = AssetManager.ResolveFilePath(basePath);
+                        if (!File.Exists(destinationFilePath))
+                        {
+                            File.Copy(originFilePath, destinationFilePath);
+                            if (mergedDestination.Contains("map_") && !mergedDestination.Contains("map_image_") && mergedDestination.EndsWith(".txt"))
+                            {
+                                string pngPath = basePath.Replace(".txt", ".png");
+                                string pngDestination = destinationFilePath.Replace(".txt", ".png").Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar); ;
+                                self.mergeMapInstructions[pngDestination] = new MapMerger.MergeMapInstructions(self.mergeMapInstructions.Count(), pngPath, pngDestination);
+                            }
+                        }
+
+                        applyAction.ApplyMerges(applyAction.modApplyFrom, self, destinationFilePath);
+                    }
+                }
+            }
+
+            foreach (KeyValuePair<Mod, List<PendingApply>> pair in subModifyActions2.OrderBy(x => x.Key.loadOrder))
+            {
+                foreach (PendingApply applyAction in pair.Value)
+                {
+                    string mergedDestination = (mergedModsFolder + subBasePaths[applyAction]).ToLowerInvariant();
+                    foreach (string destination in applyAction.fileDestinations)
+                    {
+                        string basePath = subBasePaths[applyAction].Substring(1);
+                        string destinationFilePath = RelativePathToAbsolute(destination, mergedDestination);
+                        string originFilePath = AssetManager.ResolveFilePath(basePath);
+                        if (!File.Exists(destinationFilePath))
+                        {
+                            File.Copy(originFilePath, destinationFilePath);
+                            if (mergedDestination.Contains("map_") && !mergedDestination.Contains("map_image_") && mergedDestination.EndsWith(".txt"))
+                            {
+                                string pngPath = basePath.Replace(".txt", ".png");
+                                string pngDestination = destinationFilePath.Replace(".txt", ".png").Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar); ;
+                                self.mergeMapInstructions[pngDestination] = new MapMerger.MergeMapInstructions(self.mergeMapInstructions.Count(), pngPath, pngDestination);
+                            }
+                        }
+
+                        applyAction.ApplyModifications(destinationFilePath);
+                    }
+                }
+            }
+
+
             applyer.applyFileLength = 0;
             applyer.applyFileInd = 0;
         }
