@@ -23,7 +23,7 @@ using System.Reflection;
 
 namespace MergeFix;
 
-[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.71")]
+[BepInPlugin("bro.fixedmerging", "Fixed Merging", "1.73")]
 sealed class MergeFixPlugin : BaseUnityPlugin
 {
     public static MergeFixPlugin instance;
@@ -96,7 +96,7 @@ sealed class MergeFixPlugin : BaseUnityPlugin
     /// <summary>
     /// PT 1 OF "DON'T MERGE MORE THAN YOU NEED"
     /// </summary>
-    private void ModManager_GenerateMergedMods(On.ModManager.orig_GenerateMergedMods orig, ModManager.ModApplyer applyer, List<bool> pendingEnabled, bool hasRegionMods)
+    private void ModManager_GenerateMergedMods(On.ModManager.orig_GenerateMergedMods orig, ModManager.ModApplyer applyer, List<bool> pendingEnabled)
     {
         try
         {
@@ -106,37 +106,19 @@ sealed class MergeFixPlugin : BaseUnityPlugin
                 string[] directories = Directory.GetDirectories(path);
                 for (int i = 0; i < directories.Length; i++)
                 {
-                    if (hasRegionMods && Path.GetFileName(directories[i]).ToLowerInvariant() == "world")
-                    {
-                        string[] directories2 = Directory.GetDirectories(directories[i]);
-                        for (int j = 0; j < directories2.Length; j++)
-                        {
-                            if (!(Path.GetFileName(directories2[j]).ToLowerInvariant() == "indexmaps"))
-                            {
-                                Directory.Delete(directories2[j], true);
-                            }
-                        }
-                        string[] files = Directory.GetFiles(directories[i]);
-                        for (int k = 0; k < files.Length; k++)
-                        {
-                            File.Delete(files[k]);
-                        }
-                    }
-                    else
-                    {
-                        Directory.Delete(directories[i], true);
-                    }
+                    Directory.Delete(directories[i], true);
                 }
-                string[] files2 = Directory.GetFiles(path);
-                for (int l = 0; l < files2.Length; l++)
+                string[] files = Directory.GetFiles(path);
+                for (int j = 0; j < files.Length; j++)
                 {
-                    File.Delete(files2[l]);
+                    File.Delete(files[j]);
                 }
             }
             else
             {
                 Directory.CreateDirectory(path);
             }
+
             ModManager.ModMerger modMerger = new();
             List<ModManager.Mod> mods = ModManager.InstalledMods.OrderBy(o => o.loadOrder).ToList();
 
@@ -217,7 +199,7 @@ sealed class MergeFixPlugin : BaseUnityPlugin
                 if (pendingApplies.Where(x => x.filePath.Contains("strings.txt")).Count() > 0) continue;
 
                 //find original file
-                string originPath = AssetManager.ResolveFilePath(fileName.Substring(1));
+                string originPath = AssetManager.ResolveFilePath(fileName.Substring(1), false, true);
                 if (!File.Exists(originPath))
                 { continue; Logger.LogInfo($"File does not exist {originPath}"); originPath = ""; } //either skip or make a blank
 
@@ -291,7 +273,7 @@ sealed class MergeFixPlugin : BaseUnityPlugin
                     {
                         string basePath = subBasePaths[applyAction].Substring(1);
                         string destinationFilePath = RelativePathToAbsolute(destination, mergedDestination);
-                        string originFilePath = AssetManager.ResolveFilePath(basePath);
+                        string originFilePath = AssetManager.ResolveFilePath(basePath, false, true);
                         if (!File.Exists(destinationFilePath))
                         {
                             File.Copy(originFilePath, destinationFilePath);
@@ -317,7 +299,7 @@ sealed class MergeFixPlugin : BaseUnityPlugin
                     {
                         string basePath = subBasePaths[applyAction].Substring(1);
                         string destinationFilePath = RelativePathToAbsolute(destination, mergedDestination);
-                        string originFilePath = AssetManager.ResolveFilePath(basePath);
+                        string originFilePath = AssetManager.ResolveFilePath(basePath, false, true);
                         if (!File.Exists(destinationFilePath))
                         {
                             File.Copy(originFilePath, destinationFilePath);

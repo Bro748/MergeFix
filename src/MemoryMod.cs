@@ -16,7 +16,6 @@ internal static class MemoryMod
 {
     public static void ApplyHooks()
     {
-        On.Room.Unloaded += Room_Unloaded;
         IL.OverWorld.WorldLoaded += OverWorld_WorldLoaded;
     }
 
@@ -47,12 +46,5 @@ internal static class MemoryMod
 
             return false;
         });
-    }
-
-    //not yet implemented in 1.10.0 because buggy
-    private static void Room_Unloaded(On.Room.orig_Unloaded orig, Room self)
-    {
-        Futile.atlasManager.UnloadAtlas("RainMask_" + self.abstractRoom.name);
-        orig(self);
     }
 }
